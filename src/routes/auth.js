@@ -6,10 +6,9 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import { User } from '../models/User.js';
-import { SignupCode } from '../models/SignupCode.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 import { accountUser } from '../utils/present.js';
-import { sendResetCode, sendSignupCode } from '../utils/mail.js';
+import { sendResetCode } from '../utils/mail.js';
 import { cleanAvatar, cleanGender } from '../utils/avatar.js';
 
 const router = Router();
@@ -52,43 +51,12 @@ const wallpaperUpload = multer({
   }
 });
 
-router.post('/signup-code', async (req, res, next) => {
-  try {
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const phone = cleanPhone(req.body.phone);
-    if (!emailPattern.test(email)) return res.status(400).json({ message: 'Enter a valid email.' });
-    if (!phone) return res.status(400).json({ message: 'Enter a valid mobile number.' });
-    const clash = await accountClash(email, phone);
-    if (clash) return res.status(clash.status).json({ message: clash.message });
-
-    const code = String(crypto.randomInt(100000, 1000000));
-    let sent = false;
-    try {
-      sent = await sendSignupCode(email, code);
-    } catch (err) {
-      console.error('Could not send the signup code.', err.message);
-      return res.status(503).json({ message: 'The code could not be sent. Try again in a moment.' });
-    }
-    if (!sent) return res.status(503).json({ message: 'Email is not set up on this server yet.' });
-
-    await SignupCode.findOneAndUpdate(
-      { email },
-      { codeHash: await bcrypt.hash(code, 8), expires: new Date(Date.now() + 10 * 60 * 1000) },
-      { upsert: true, new: true }
-    );
-    res.json({ sent: true, message: 'We sent a 6-digit code to that email.' });
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.post('/signup', async (req, res, next) => {
   try {
     const name = String(req.body.name || '').trim();
     const personalId = String(req.body.personalId || '').trim().toLowerCase().replace(/^@/, '');
     const email = String(req.body.email || '').trim().toLowerCase();
     const phone = cleanPhone(req.body.phone);
-    const code = String(req.body.code || '').trim();
     const password = String(req.body.password || '');
     const gender = cleanGender(req.body.gender);
     const avatar = cleanAvatar(req.body.avatar);
@@ -103,7 +71,6 @@ router.post('/signup', async (req, res, next) => {
       return res.status(400).json({ message: 'Enter a valid email.' });
     }
     if (!phone) return res.status(400).json({ message: 'Enter a valid mobile number.' });
-    if (!/^\d{6}$/.test(code)) return res.status(400).json({ message: 'Enter the 6-digit code from your email.' });
     if (password.length < 6 || password.length > 100) {
       return res.status(400).json({ message: 'Password should be at least 6 characters.' });
     }
@@ -112,13 +79,6 @@ router.post('/signup', async (req, res, next) => {
 
     const clash = await accountClash(email, phone);
     if (clash) return res.status(clash.status).json({ message: clash.message });
-    const pending = await SignupCode.findOne({ email });
-    if (!pending || pending.expires.getTime() < Date.now()) {
-      return res.status(400).json({ message: 'Send a new code to your email first.' });
-    }
-    if (!(await bcrypt.compare(code, pending.codeHash))) {
-      return res.status(400).json({ message: 'That code is not correct.' });
-    }
     const takenId = await User.findOne({ personalId });
     if (takenId) {
       return res.status(409).json({ message: 'That personal ID is already taken.' });
@@ -133,7 +93,6 @@ router.post('/signup', async (req, res, next) => {
       avatar: avatar || '',
       password: await bcrypt.hash(password, 10)
     });
-    await SignupCode.deleteOne({ email });
     res.status(201).json({ token: signToken(user), user: accountUser(user) });
   } catch (err) {
     next(err);
