@@ -1,28 +1,25 @@
-import nodemailer from 'nodemailer';
-
 export async function sendMail({ to, subject, text }) {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass) return false;
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return false;
 
-  const transporter = nodemailer.createTransport({
-    host,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: { user, pass },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: process.env.RESEND_FROM || 'Hearth <onboarding@resend.dev>',
+      to: [to],
+      subject,
+      text
+    })
   });
 
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || user,
-    to,
-    subject,
-    text
-  });
-  return true;
+  if (response.ok) return true;
+  const data = await response.json().catch(() => ({}));
+  const message = data.message || data.error || 'Resend could not send the email.';
+  throw new Error(typeof message === 'string' ? message : 'Resend could not send the email.');
 }
 
 export function sendResetCode(email, code) {
