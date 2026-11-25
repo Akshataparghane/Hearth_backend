@@ -27,11 +27,21 @@ const allowed = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+function allowOrigin(origin, callback) {
+  if (!origin || allowed.includes(origin)) return callback(null, true);
+  try {
+    if (new URL(origin).hostname.endsWith('.vercel.app')) return callback(null, true);
+  } catch {
+    return callback(null, false);
+  }
+  return callback(null, false);
+}
+
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: allowed } });
+const io = new Server(server, { cors: { origin: allowOrigin } });
 
-app.use(cors({ origin: allowed }));
+app.use(cors({ origin: allowOrigin }));
 app.use(express.json({ limit: '200kb' }));
 
 app.get('/api/health', (_req, res) => {
