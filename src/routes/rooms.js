@@ -6,7 +6,7 @@ import { CallRing } from '../models/CallRing.js';
 import { requireAuth } from '../middleware/auth.js';
 import { presentRoom } from '../utils/present.js';
 import { areFriends } from '../utils/friends.js';
-import { emitToRoom } from '../socket.js';
+import { emitToRoom, emitToUser } from '../socket.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -76,6 +76,10 @@ router.post('/', async (req, res, next) => {
       host: req.user.id,
       members: [req.user.id, ...friendIds]
     });
+    const who = req.user.name || 'Someone';
+    for (const friendId of friendIds) {
+      emitToUser(friendId, 'notice', { text: `${who} invited you to the room ${name}.` });
+    }
     const full = await loadRoom(room._id);
     res.status(201).json({ room: presentRoom(full) });
   } catch (err) {
@@ -129,6 +133,9 @@ router.post('/:id/members', async (req, res, next) => {
     }
     room.members.push(userId);
     await room.save();
+    emitToUser(userId, 'notice', {
+      text: `${req.user.name || 'Someone'} invited you to the room ${room.name}.`
+    });
     const full = await loadRoom(room._id);
     const presented = presentRoom(full);
     emitToRoom(presented.id, 'roster', { members: presented.members, hostId: presented.hostId });
